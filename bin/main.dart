@@ -7,10 +7,16 @@ main() {
   // print(id.asPointer().address);
   // print(getWindowText(id));
   // print(getWindowInfo(id));
+  var active = Windows.getActiveWindow();
+  print(active.getWindowText());
 
   // print('All windows:');
   // var windows = listWindows();
   // print('Found ${windows.length} windows!');
+  var windows = Windows.list();
+  for(var window in windows) {
+    print(window.getWindowText());
+  }
 
   // print('Switch to "YakYak"');
   // var window = findWindow(WindowQuery(titleMatcher: "YakYak"));
@@ -36,8 +42,9 @@ main() {
   // sendInput("Hello World!");
   // quitWindow(notepad.id);
 
-  hotkeys["F1"] = () {
-    sendInput("Hello World");
-  };
-  mainLoop();
+  Hotkey.add("F2", () {
+    Input.send("Hello world");
+  });
+
+  Robotize.start();
 }

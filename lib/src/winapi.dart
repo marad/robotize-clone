@@ -1,4 +1,5 @@
 import 'dart:ffi';
+import 'package:ffi/ffi.dart';
 
 DynamicLibrary _user32 = DynamicLibrary.open("user32.dll");
 
@@ -109,6 +110,52 @@ typedef _PostMessageW_C = Uint32 Function(Pointer hWnd, Uint32 Msg, Pointer<Uint
 typedef _PostMessageW_Dart = int Function(Pointer hWnd, int Msg, Pointer<Uint64> wParam, Pointer<Int64> lParam);
 var PostMessageW = _user32.lookupFunction<_PostMessageW_C, _PostMessageW_Dart>("PostMessageW");
 
+const INPUT_MOUSE = 0;
+const INPUT_KEYBOARD = 1;
+const INPUT_HARDWARE = 2;
+
+const KEYEVENTF_EXTENDEDKEY = 0x0001;
+const KEYEVENTF_KEYUP = 0x0002;
+const KEYEVENTF_UNICODE = 0x0004;
+const KEYEVENTF_SCANCODE = 0x0008;
+
+
+class KeyboardInput extends Struct {
+  @Uint64() int type;
+  @Uint16() int virtualCode;
+  @Uint16() int scanCode;
+  @Uint64() int flags;
+  @Uint64() int time;
+  @Uint64() int dwExtraInfo;
+  // Pointer dwExtraInfo;
+
+  factory KeyboardInput.allocate(int virtualCode, int scanCode, int flags) =>
+    allocate<KeyboardInput>().ref
+      ..type = INPUT_KEYBOARD
+      ..virtualCode = virtualCode
+      ..scanCode = scanCode
+      ..flags = flags
+      ..time = 0
+      ..dwExtraInfo = 0
+      ;
+}
+
+
+class _MouseInput extends Struct {
+  @Uint64()
+  int dx;
+  @Uint64()
+  int dy;
+  @Uint32()
+  int mouseData;
+  @Uint32()
+  int flags;
+  @Uint32()
+  int time;
+  Pointer extraInfo;
+}
+
+
 typedef _SendInput_C = Uint32 Function(Uint32 cInputs, Pointer pInputs, Uint32 cbSize);
 typedef _SendInput_Dart = int Function(int cInputs, Pointer pInputs, int cbSize);
 var SendInput = _user32.lookupFunction<_SendInput_C, _SendInput_Dart>("SendInput");
@@ -133,9 +180,28 @@ typedef _SetWindowsHookExW_C = Pointer Function(Uint32 idHook, Pointer lpfn, Poi
 typedef _SetWindowsHookExW_Dart = Pointer Function(int idHook, Pointer lpfn, Pointer hmod, int dwThreadId);
 var SetWindowsHookExW = _user32.lookupFunction<_SetWindowsHookExW_C, _SetWindowsHookExW_Dart>("SetWindowsHookExW");
 
+class KBDLLHOOK extends Struct {
+  @Uint32() int vkCode;
+  @Uint32() int scanCode;
+  @Uint32() int flags;
+  @Uint32() int time;
+  Pointer dwExtraInfo;
+}
+
 typedef _CallNextHookEx_C = Uint32 Function(Pointer hhk, Uint32 nCode, Pointer<Uint64> wParam, Pointer<Int64> lParam);
 typedef _CallNextHookEx_Dart = int Function(Pointer hhk, int nCode, Pointer<Uint64> wParam, Pointer<Int64> lParam);
 var CallNextHookEx = _user32.lookupFunction<_CallNextHookEx_C, _CallNextHookEx_Dart>("CallNextHookEx");
+
+class MSG extends Struct {
+  Pointer hwnd;
+  @Uint32() int message;
+  Pointer<Uint64> wParam;
+  Pointer<Int64> lParam;
+  @Uint32() int time;
+  @Int64() int pointX;
+  @Int64() int pointY;
+  @Uint64() int lPrivate;
+}
 
 typedef _GetMessage_C = Uint32 Function(Pointer lpMsg, Pointer hWnd, Uint32 wMsgFilterMin, Uint32 wMsgFilterMax);
 typedef _GetMessage_Dart = int Function(Pointer lpMsg, Pointer hWnd, int wMsgFilterMin, int wMsgFilterMax);

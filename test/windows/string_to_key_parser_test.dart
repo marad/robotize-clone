@@ -1,6 +1,6 @@
 import 'package:robotize/src/keyboard.dart';
 import 'package:test/test.dart';
-import 'package:robotize/src/windows.dart';
+import 'package:robotize/src/input.dart';
 
 void main() {
 
@@ -11,7 +11,7 @@ void main() {
     for(var index=0; index < upperCaseLetters.length; index++) {
         var letter = upperCaseLetters[index];
         test("should parse upper-case letter: '$letter'", () {
-            var key = stringToKeys(letter, raw: true).first;
+            var key = Input.stringToKeys(letter, raw: true).first;
 
             expect(key.char, letter);
             expect(key.keyCode, keyMap[letter]);
@@ -27,7 +27,7 @@ void main() {
     for(var index=0; index < lowerCaseLetters.length; index++) {
         var letter = lowerCaseLetters[index];
         test("should parse lower-case letter: '$letter'", () {
-            var key = stringToKeys(letter, raw: true).first;
+            var key = Input.stringToKeys(letter, raw: true).first;
 
             expect(key.char, letter);
             expect(key.keyCode, keyMap[letter.toUpperCase()]);
@@ -59,7 +59,7 @@ void main() {
       var char = characters[index].first;
       var expectedVkey = characters[index].last;
       test(char, () {
-        var key = stringToKeys(char, raw: true).first;
+        var key = Input.stringToKeys(char, raw: true).first;
 
         expect(key.char, char);
         expect(key.keyCode, expectedVkey);
@@ -101,7 +101,7 @@ void main() {
       var char = characters[index].first;
       var expectedVkey = characters[index].last;
       test(char, () {
-        var key = stringToKeys(char, raw: true).first;
+        var key = Input.stringToKeys(char, raw: true).first;
 
         expect(key.char, char);
         expect(key.keyCode, expectedVkey);
