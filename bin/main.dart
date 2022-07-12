@@ -1,50 +1,24 @@
-
 import 'package:robotize/robotize.dart';
 
-main() {
-  // print('Current window:');
-  // var id = getActiveWindow();
-  // print(id.asPointer().address);
-  // print(getWindowText(id));
-  // print(getWindowInfo(id));
-  var active = Windows.getActiveWindow();
-  print(active.getWindowText());
+main() async {
+  robotizeInit();
 
-  // print('All windows:');
-  // var windows = listWindows();
-  // print('Found ${windows.length} windows!');
-  var windows = Windows.list();
-  for(var window in windows) {
-    print(window.getWindowText());
-  }
-
-  // print('Switch to "YakYak"');
-  // var window = findWindow(WindowQuery(titleMatcher: "YakYak"));
-  // // activateWindow(window.id);
-
-  // var viewer = findWindow(WindowQuery(titleMatcher: "DLL Export Viewer"));
-  // activateWindow(viewer.id);
-  // print(quitWindow(viewer.id));
-
-  // var notepad = findWindow(WindowQuery(titleMatcher: "WindowsProject1"));
-  // var notepad = findWindow(WindowQuery(titleMatcher: "Firefox"));
-  // var notepad = findWindow(WindowQuery(titleMatcher: "Notatnik"));
-  // activateWindow(notepad.id);
-  // sleep(Duration(milliseconds: 1000));
-  // sendKey(notepad.id, "hello".codeUnitAt(0));
-
-  // var notepad = findWindow(WindowQuery(titleMatcher: "Notepad"));
-  // print('Activating window');
-  // activateWindow(notepad.id);
-  // print('Writing...');
-  // sleep(Duration(milliseconds: 500));
-
-  // sendInput("Hello World!");
-  // quitWindow(notepad.id);
-
-  Hotkey.add("F2", () {
-    Input.send("Hello world");
+  hotkey.add("{F3}", () {
+    var window = windows.getActiveWindow();
+    print(window.getExeName());
   });
 
-  Robotize.start();
+  hotkey.add("{F4}", () {
+    var window = windows.find(WindowQuery(titleMatcher: "Notepad"));
+    window.activateWindow();
+    print(window.getExeName());
+  });
+
+  await windows.waitActive(WindowQuery(titleMatcher: "Notepad"));
+
+  print('Notepad active');
+
+  await windows.waitInactive(WindowQuery(titleMatcher: "Notepad"));
+
+  print('Notepad not active');
 }

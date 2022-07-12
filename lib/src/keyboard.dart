@@ -1,26 +1,52 @@
+import 'package:event_bus/event_bus.dart';
+import 'package:robotize/src/keystring.dart';
 
 class KeyEvent {
-  final String char;
-  final int keyCode;
-  final bool down;
-  final bool up;
-  final bool shift;
-  final bool ctrl;
-  final bool alt;
+  String char;
+  int keyCode;
+  bool down;
+  bool up;
+  bool shift;
+  bool ctrl;
+  bool alt;
+  bool win;
 
-  KeyEvent(this.char, this.keyCode, {
-    this.down = true, this.up = true,
-    this.shift = false, this.ctrl = false, this.alt = false});
-  
-  List<String> get modifiers => 
-    [
-      shift ? "SHIFT" : null,
-      alt ? "ALT" : null,
-      ctrl ? "CTRL" : null,
-    ]
-    .where((modifier) => modifier != null)
-    .toList();
-}   
+  KeyEvent(this.char, this.keyCode,
+      {this.down = true,
+      this.up = true,
+      this.shift = false,
+      this.ctrl = false,
+      this.alt = false,
+      this.win = false});
+
+  List<String> get modifiers => [
+        shift ? "SHIFT" : null,
+        alt ? "ALT" : null,
+        ctrl ? "CTRL" : null,
+        win ? "LWIN" : null,
+      ].where((modifier) => modifier != null).toList();
+
+  @override
+  // TODO: implement hashCode
+  int get hashCode => 
+    char.hashCode ^ keyCode.hashCode ^ down.hashCode ^ up.hashCode ^ shift.hashCode ^ ctrl.hashCode ^ alt.hashCode ^ win.hashCode;
+
+  bool operator==(Object other) =>
+    identical(this, other) ||
+    other is KeyEvent &&
+    other.char == char &&
+    other.keyCode == keyCode &&
+    other.up == up &&
+    other.down == down &&
+    other.shift == shift &&
+    other.ctrl == ctrl &&
+    other.alt == alt &&
+    other.win == win;
+
+  @override
+  String toString() =>
+    "KeyEvent [ char = $char, keyCode = $keyCode, up = $up, down = $down, shift = $shift, ctrl = $ctrl, alt = $alt, win = $win ]";
+}
 
 const keyMap = {
   " ": 0x20,
@@ -116,7 +142,6 @@ const keyMap = {
   "-": 0xBD,
   ";": 0xBA,
 
-
   "ENTER": 0x0D,
   "TAB": 0x09,
   "SHIFT": 0x10,
@@ -141,3 +166,85 @@ const keyMap = {
   "RIGHT": 0x27,
   "DOWN": 0x28,
 };
+
+
+class Keyboard {
+  static EventBus _eventBus;
+
+  static List<KeyEvent> decodeEvents(String toSend, {bool raw = false}) {
+    if (raw) {
+      return rawDecodeEvents(toSend);
+    } else {
+      return decode(toSend);
+    }
+  }
+
+  static List<KeyEvent> rawDecodeEvents(String toSend) {
+    var keys = <KeyEvent>[];
+    for (int i = 0; i < toSend.length; i++) {
+      var char = toSend[i];
+      if (_specialKeysWithoutShift.contains(char)) {
+        keys.add(KeyEvent(char, keyMap[char]));
+      } else if (_specialKeysShiftMap.keys.contains(char)) {
+        keys.add(
+            KeyEvent(char, keyMap[_specialKeysShiftMap[char]], shift: true));
+      } else {
+        keys.add(KeyEvent(char, keyMap[char.toUpperCase()],
+            shift: char == char.toUpperCase()));
+      }
+    }
+    return keys;
+  }
+
+  static var _specialKeysWithoutShift = "[];',./`\\=-";
+  static var _specialKeysShiftMap = {
+    "~": "`",
+    "!": "1",
+    "@": "2",
+    "#": "3",
+    "\$": "4",
+    "%": "5",
+    "^": "6",
+    "&": "7",
+    "*": "8",
+    "(": "9",
+    ")": "0",
+    "_": "-",
+    "+": "=",
+    "{": "[",
+    "}": "]",
+    "|": "\\",
+    ":": ";",
+    "\"": "'",
+    "<": ",",
+    ">": ".",
+    "?": "/",
+  };
+
+
+  static String keyNameForVirtualKey(int virtualKey) =>
+    keyMap.entries.firstWhere((entry) => entry.value == virtualKey, orElse: () => null)?.key;
+
+  static void init(EventBus eventBus) {
+    _eventBus = eventBus;
+    // var callback = Pointer.fromFunction<winapi.KeyboardProc>(Keyboard._keybdHookProc, 0);
+    // var hook = winapi.SetWindowsHookExW(winapi.WH_KEYBOARD_LL, callback, nullptr, 0);
+    // if (hook == nullptr) {
+    //   // TODO: handle error
+    //   print('couldnt register the hook');
+    // } else {
+    //   print('Hook registered');
+    // }
+  }
+
+  // static int _keybdHookProc(int code, Pointer<Uint64> wParam, Pointer<Int64> lParam) {
+  //   var event = wParam.address;
+  //   Pointer<winapi.KBDLLHOOK> dataPtr = lParam.cast();
+  //   var data = dataPtr.ref;
+
+  //   _eventBus.fire(KeyEvent(null, data.vkCode));
+
+  //   return winapi.CallNextHookEx(nullptr, code, wParam, lParam);
+  // }
+
+}

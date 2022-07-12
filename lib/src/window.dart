@@ -1,15 +1,19 @@
+import 'dart:async';
 import 'dart:ffi';
+import 'package:event_bus/event_bus.dart';
 import 'package:ffi/ffi.dart';
+import 'package:robotize/src/models.dart';
+import 'package:robotize/src/winapi_main.dart';
 import 'winapi.dart' as winapi;
 
 // Funkcje do zaimplementowania w pierwszej kolejnosci
 // [x] Pobranie aktywnego okna (GetActiveWindow)
 // [x] Aktywowanie Okna (SetActiveWindow / SetForegroundWindow)
 // [x] Wysłanie wciśnięć klawiszy (SendInput)
-// [ ] Wysłanie kliknięcia
-// [ ] - kliknięcie relatywnie do ekranu
-// [ ] - kliknięcie relatywnie do okna (ScreenToClient / ClientToScreen)
-// [ ] Czytanie clipboardu / Zapisywanie do clipboardu
+// [x] Wysłanie kliknięcia
+// [x] - kliknięcie relatywnie do ekranu
+// [x] - kliknięcie relatywnie do okna (ScreenToClient / ClientToScreen)
+// [x] Czytanie clipboardu / Zapisywanie do clipboardu
 // [x] Szukanie Okna (FinwWindowExA)
 // [x] - Szukanie po ID
 // [x] - Szukanie po tytule
@@ -43,14 +47,14 @@ class WindowQuery {
   final WindowId windowId;
   final Pattern titleMatcher;
   final Pattern classMatcher;
-  // final Pattern exeNameMatcher;
+  final Pattern exeNameMatcher;
   final bool onlyVisible;
 
   WindowQuery(
       {this.windowId,
       this.titleMatcher,
       this.classMatcher,
-      // this.exeNameMatcher,
+      this.exeNameMatcher,
       this.onlyVisible = true});
 
   bool windowMatches(WindowInfo candidate) {
@@ -59,11 +63,13 @@ class WindowQuery {
         : true;
     return windowIdMatches &&
         _titleMatches(candidate.title) &&
-        _classMatcher(candidate.className);
+        _classMatcher(candidate.className) &&
+        _exeNameMatches(candidate.exeName);
   }
 
   bool _titleMatches(String title) => _filterMatch(titleMatcher, title);
   bool _classMatcher(String title) => _filterMatch(classMatcher, title);
+  bool _exeNameMatches(String exeName) => _filterMatch(exeNameMatcher, exeName);
 
   bool _filterMatch(Pattern pattern, String toMatch) {
     if (pattern == null) {
@@ -75,13 +81,19 @@ class WindowQuery {
 
 
 class Windows {
-  static Window getActiveWindow() =>
+  Windows(this._eventBus);
+  final EventBus _eventBus;
+
+  Window getActiveWindow() =>
       Window(WindowId.fromPointer(winapi.GetForegroundWindow()));
 
-  static Window getWindow(WindowId id) => Window(id);
+  Window getDesktopWindow() =>
+    Window(WindowId.fromPointer(winapi.GetDesktopWindow()));
+
+  Window getWindow(WindowId id) => Window(id);
 
   /// Lists windows. If query is not provided, lists only visible windows.
-  static List<Window> list({WindowQuery query}) {
+  List<Window> list({WindowQuery query}) {
     if (query != null && query.windowId != null) {
       // find and examine only one window
       var window = getWindow(query.windowId);
@@ -112,7 +124,7 @@ class Windows {
     }
   }
 
-  static Window find(WindowQuery query) {
+  Window find(WindowQuery query) {
     var windows = list(query: query);
     if (windows.length > 0) {
       return windows.first;
@@ -121,6 +133,37 @@ class Windows {
     }
   }
 
+  Future<Window> waitActive(WindowQuery query) {
+    var completer = Completer<Window>();
+    StreamSubscription<WindowChanged> subscription = null;
+    subscription = _eventBus.on<WindowChanged>().listen((event) {
+      var window = event.newWindow;
+      if (query.windowMatches(window.getWindowInfo())) {
+        completer.complete(window);
+        subscription.cancel();
+      }
+    });
+    return completer.future;
+  }
+
+  Future<void> waitInactive(WindowQuery query) {
+    var completer = Completer();
+    StreamSubscription<WindowChanged> subscription = null;
+    subscription = _eventBus.on<WindowChanged>().listen((event) {
+      var window = event.newWindow;
+      if (!query.windowMatches(window.getWindowInfo())) {
+        completer.complete();
+        subscription.cancel();
+      }
+    });
+
+    var activeWindow = getActiveWindow();
+    if (!query.windowMatches(activeWindow.getWindowInfo())) {
+      subscription.cancel();
+      completer.complete();
+    }
+    return completer.future;
+  }
 }
 
 class Window {
@@ -128,17 +171,39 @@ class Window {
 
   Window(this._id);
 
+  Pointer get hwnd => _id.asPointer();
+
   WindowInfo getWindowInfo() {
     var buffer = allocate<Uint16>(count: 257);
-    var readChars = winapi.GetClassNameW(_id.asPointer(), buffer, 257);
+    var readChars = winapi.GetClassNameW(hwnd, buffer, 257);
     String className = _bufToString(buffer, readChars);
     free(buffer);
-    return WindowInfo(_id, getWindowText(), className);
+    return WindowInfo(_id, getWindowText(), className, getExeName());
+  }
+
+  String getExeName() {
+    var processIdPointer = allocate<Uint32>();
+    winapi.GetWindowThreadProcessId(hwnd, processIdPointer);
+    var processId = processIdPointer.value;
+    var processHandle = winapi.OpenProcess(winapi.PROCESS_QUERY_LIMITED_INFORMATION, 0, processId);
+    var bufferLen = 1000;
+    var buffer = allocate<Uint16>(count: bufferLen);
+    var length = allocate<Uint32>();
+    length.value = bufferLen;
+    winapi.QueryFullProcessImageNameW(processHandle, 0, buffer, length);
+    var exeName = _bufToString(buffer, length.value);
+    winapi.CloseHandle(processHandle);
+    free(buffer);
+    return exeName;
+  }
+
+  static String _bufToString(Pointer<Uint16> buffer, int length) {
+    List<int> classChars = buffer.asTypedList(length);
+    return String.fromCharCodes(classChars);
   }
 
   /// Returns text from provided window or control.
   String getWindowText() {
-    var hwnd = _id.asPointer();
     var length = winapi.GetWindowTextLengthA(hwnd);
     var buffer = allocate<Uint16>(count: length + 1);
     var readChars = winapi.GetWindowTextW(hwnd, buffer, length + 1);
@@ -147,9 +212,32 @@ class Window {
     return String.fromCharCodes(chars);
   }
 
-  static String _bufToString(Pointer<Uint16> buffer, int length) {
-    List<int> classChars = buffer.asTypedList(length);
-    return String.fromCharCodes(classChars);
+  Point clientToScreen(Point input) {
+    var winapiPoint = winapi.Point.create(x: input.x, y: input.y);
+    winapi.ClientToScreen(hwnd, winapiPoint);
+    return Point(x: winapiPoint.ref.x, y: winapiPoint.ref.y);
+  }
+
+  Rect getWindowRect() {
+    var winapiRect = winapi.Rect.create();
+    winapi.GetWindowRect(hwnd, winapiRect);
+    return Rect(
+      left: winapiRect.ref.left,
+      top: winapiRect.ref.top,
+      right: winapiRect.ref.right,
+      bottom: winapiRect.ref.bottom,
+    );
+  }
+
+  Rect getClientRect() {
+    var winapiRect = winapi.Rect.create();
+    winapi.GetClientRect(hwnd, winapiRect);
+    return Rect(
+      left: winapiRect.ref.left,
+      top: winapiRect.ref.top,
+      right: winapiRect.ref.right,
+      bottom: winapiRect.ref.bottom,
+    );
   }
 
   bool activateWindow() {
@@ -192,6 +280,79 @@ class Window {
     // return winapi.DestroyWindow(id.asPointer()) > 0;
   }
 
+  bool isAlwaysOnTop() {
+    var styles = winapi.GetWindowLongPtrA(hwnd, winapi.GWL_EXSTYLE).address;
+    return styles & winapi.WS_EX_TOPMOST == winapi.WS_EX_TOPMOST;
+  }
+
+  void setAlwaysOnTop(bool alwaysOnTop) {
+    winapi.SetWindowPos(
+      hwnd, 
+      alwaysOnTop ? winapi.HWND_TOPMOST : winapi.HWND_NOTOPMOST,
+      0, 0, 0, 0,
+      winapi.SWP_NOMOVE | winapi.SWP_NOSIZE | winapi.SWP_FRAMECHANGED);
+  }
+
+  void bringToTop() {
+    winapi.SetWindowPos(
+      hwnd,
+      winapi.HWND_TOP,
+      0, 0, 0, 0,
+      winapi.SWP_NOMOVE | winapi.SWP_NOSIZE | winapi.SWP_ASYNCWINDOWPOS
+    );
+  }
+
+  void sendToBottom() {
+    winapi.SetWindowPos(
+      hwnd,
+      winapi.HWND_BOTTOM,
+      0, 0, 0, 0,
+      winapi.SWP_NOMOVE | winapi.SWP_NOSIZE | winapi.SWP_ASYNCWINDOWPOS
+    );
+  }
+
+  void setPosition(int x, int y) {
+    winapi.SetWindowPos(
+      hwnd,
+      nullptr,
+      x, y, 0, 0,
+      winapi.SWP_NOSIZE | winapi.SWP_NOZORDER | winapi.SWP_ASYNCWINDOWPOS
+    );
+  }
+
+  void setSize(int width, int height) {
+    winapi.SetWindowPos(
+      hwnd,
+      nullptr,
+      0, 0, width, height,
+      winapi.SWP_NOMOVE | winapi.SWP_NOZORDER | winapi.SWP_ASYNCWINDOWPOS
+    );
+  }
+
+  void updateStyle(final int update, {FlagUpdateType updateType = FlagUpdateType.SetFlag}) {
+    final current = winapi.GetWindowLongPtrA(hwnd, winapi.GWL_STYLE).address;
+    winapi.SetWindowLongPtrA(
+      hwnd, winapi.GWL_STYLE,
+      Pointer.fromAddress(_flagUpdate(current, update, updateType)));
+  }
+
+  void updateExStyle(final int update, {FlagUpdateType updateType = FlagUpdateType.SetFlag}) {
+    final current = winapi.GetWindowLongPtrA(hwnd, winapi.GWL_EXSTYLE).address;
+    winapi.SetWindowLongPtrA(
+      hwnd, winapi.GWL_EXSTYLE,
+      Pointer.fromAddress(_flagUpdate(current, update, updateType)));
+  }
+
+  int _flagUpdate(int current, int update, FlagUpdateType updateType) {
+    switch (updateType) {
+      case FlagUpdateType.Reset: return update;
+      case FlagUpdateType.SetFlag: return current | update;
+      case FlagUpdateType.Toggle: return current ^ update;
+      case FlagUpdateType.UnsetFlag: return current & (-1 ^ update);
+    }
+    return current;
+  }
+
   int postMessage(int msg, int wparam, int lparam) {
     var wparam_c =  allocate<Uint64>();
     var lparam_c = allocate<Int64>();
@@ -215,13 +376,18 @@ class WindowInfo {
   final WindowId id;
   final String title;
   final String className;
+  final String exeName;
 
-  WindowInfo(this.id, this.title, this.className);
+  WindowInfo(this.id, this.title, this.className, this.exeName);
 
   @override
   String toString() {
-    return "ID: ${id.windowId}, class: $className, title: $title";
+    return "ID: ${id.windowId}, class: $className, title: $title, exeName: $exeName";
   }
+}
+
+enum FlagUpdateType {
+  Reset, SetFlag, Toggle, UnsetFlag
 }
 
 class _WindowCollector extends Struct {
@@ -241,7 +407,7 @@ class _WindowCollector extends Struct {
         ..windows = allocate<Uint32>(count: capacity);
 
   void addWindow(int windowId) {
-    // TODO: if capacity is reached - allocate more and copy
+    // TODO: if capacity is reached - allocate more and copy (memcpy)
     windows[numWindows++] = windowId;
   }
 }

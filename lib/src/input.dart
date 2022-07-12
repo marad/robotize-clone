@@ -1,36 +1,52 @@
 import 'dart:ffi';
 import 'dart:io';
+
+import 'package:robotize/robotize.dart';
+
+import 'models.dart';
 import 'winapi.dart' as winapi;
 import 'keyboard.dart';
 
 class Input {
-  static var keyPressDuration = Duration(milliseconds: 20);
-  static void send(String toSend) {
-    sendKeys(stringToKeys(toSend));
-  }
+  var keyPressDuration = Duration(milliseconds: 20);
 
+  void click(int x, int y, {MouseButton button = MouseButton.Left, ClickMode clickMode = ClickMode.Absolute}) {
+    final desktopWindowRect = windows.getDesktopWindow().getWindowRect();
 
-  static List<KeyEvent> stringToKeys(String toSend, {bool raw = false}) {
-    if (!raw) {
-      print("Only raw mode is currently supported");
+    var pixelX = null;
+    var pixelY = null;
+
+    switch (clickMode) {
+      case ClickMode.RelativeToWindow:
+        final activeWindowRect = windows.getActiveWindow().getWindowRect();
+        pixelX = activeWindowRect.left + x;
+        pixelY = activeWindowRect.top + y;
+        break;
+      case ClickMode.RelativeToWindowClientArea:
+        var clientOrigin = windows.getActiveWindow().clientToScreen(Point(x: 0, y: 0));
+        pixelX = clientOrigin.x + x;
+        pixelY = clientOrigin.y + y;
+        break;
+      case ClickMode.Absolute:
+      default:
+        pixelX = x;
+        pixelY = y;
     }
 
-    var keys = <KeyEvent>[];
-    for(int i=0; i < toSend.length; i++) {
-      var char = toSend[i];
-      if (_specialKeysWithoutShift.contains(char)) {
-        keys.add(KeyEvent(char, keyMap[char]));
-      } else if (_specialKeysShiftMap.keys.contains(char)) {
-        keys.add(KeyEvent(char, keyMap[_specialKeysShiftMap[char]], shift: true));
-      } else {
-        keys.add(KeyEvent(char, keyMap[char.toUpperCase()],
-        shift: char == char.toUpperCase()));
-      }
-    }
-    return keys;
+    final int absoluteX = (pixelX.toDouble() * 65535.0 / desktopWindowRect.width.toDouble()).toInt();
+    final int absoluteY = (pixelY.toDouble() * 65535.0 / desktopWindowRect.height.toDouble()).toInt();
+
+    var eventDown = winapi.MouseInput.allocate(
+      absoluteX, absoluteY, 
+      flags: winapi.MOUSEEVENTF_MOVE | winapi.MOUSEEVENTF_ABSOLUTE | _mouseButtonFlags(button));
+    winapi.SendInput(1, eventDown.addressOf, sizeOf<winapi.MouseInput>());
   }
 
-  static void sendKeys(List<KeyEvent> keyEvents) {
+  void send(String toSend, {raw: false}) {
+    sendKeys(Keyboard.decodeEvents(toSend, raw: raw));
+  }
+
+  void sendKeys(List<KeyEvent> keyEvents) {
     keyEvents.forEach((event) {
       event.modifiers.forEach((name) => sendKeyDown(keyMap[name]));
       if (event.down) {
@@ -46,44 +62,44 @@ class Input {
     });
   }
 
-  static void sendKeyDown(int virtualKeyCode) {
-    winapi.keybd_event(
-        virtualKeyCode, 
-        winapi.MapVirtualKeyW(virtualKeyCode, winapi.MAPVK_VK_TO_VSC), 
-        winapi.KEYEVENTF_EXTENDEDKEY, 
-        nullptr);
+  void sendKeyDown(int virtualKeyCode) {
+    var event = winapi.KeyboardInput.allocate(virtualKeyCode: virtualKeyCode);
+    winapi.SendInput(1, event.addressOf, sizeOf<winapi.KeyboardInput>());
   }
 
-  static void sendKeyUp(int virtualKeyCode) {
-    winapi.keybd_event(
-        virtualKeyCode, 
-        winapi.MapVirtualKeyW(virtualKeyCode, winapi.MAPVK_VK_TO_VSC), 
-        winapi.KEYEVENTF_EXTENDEDKEY | winapi.KEYEVENTF_KEYUP, 
-        nullptr);
+  void sendKeyUp(int virtualKeyCode) {
+    var event = winapi.KeyboardInput.allocate(
+      virtualKeyCode: virtualKeyCode, 
+      flags: winapi.KEYEVENTF_KEYUP);
+    winapi.SendInput(1, event.addressOf, sizeOf<winapi.KeyboardInput>());
   }
+}
 
-  static var _specialKeysWithoutShift = "[];',./`\\=-";
-  static var _specialKeysShiftMap = {
-    "~": "`",
-    "!": "1",
-    "@": "2",
-    "#": "3",
-    "\$": "4",
-    "%": "5",
-    "^": "6",
-    "&": "7",
-    "*": "8",
-    "(": "9",
-    ")": "0",
-    "_": "-",
-    "+": "=",
-    "{": "[",
-    "}": "]",
-    "|": "\\",
-    ":": ";",
-    "\"": "'",
-    "<": ",",
-    ">": ".",
-    "?": "/",
-  };
+
+enum ClickMode {
+  Absolute, RelativeToWindow, RelativeToWindowClientArea
+}
+
+enum MouseButton {
+  Left, LeftDown, LeftUp,
+  Right, RightDown, RightUp,
+  Middle, MiddleDown, MiddleUp
+}
+
+int _mouseButtonFlags(MouseButton button) {
+  switch (button) {
+    case MouseButton.Left: return winapi.MOUSEEVENTF_LEFTDOWN | winapi.MOUSEEVENTF_LEFTUP;
+    case MouseButton.LeftDown: return winapi.MOUSEEVENTF_LEFTDOWN;
+    case MouseButton.LeftUp: return winapi.MOUSEEVENTF_LEFTUP;
+
+    case MouseButton.Right: return winapi.MOUSEEVENTF_RIGHTDOWN | winapi.MOUSEEVENTF_RIGHTUP;
+    case MouseButton.RightDown: return winapi.MOUSEEVENTF_RIGHTDOWN;
+    case MouseButton.RightUp: return winapi.MOUSEEVENTF_RIGHTUP;
+
+    case MouseButton.Middle: return winapi.MOUSEEVENTF_MIDDLEDOWN | winapi.MOUSEEVENTF_MIDDLEUP;
+    case MouseButton.MiddleDown: return winapi.MOUSEEVENTF_MIDDLEDOWN;
+    case MouseButton.MiddleUp: return winapi.MOUSEEVENTF_MIDDLEUP;
+
+    default: return 0;
+  }
 }

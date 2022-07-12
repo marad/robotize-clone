@@ -1,39 +1,68 @@
-import 'dart:ffi';
-import 'winapi.dart' as winapi;
-import 'keyboard.dart';
+import 'package:event_bus/event_bus.dart';
 
+import 'package:robotize/robotize.dart';
+import 'package:robotize/src/keyboard.dart';
+import 'package:robotize/src/winapi_main.dart';
+
+import 'winapi.dart' as winapi;
+
+class HotkeyDetails {
+  HotkeyDetails(this.hotkeyString, this.keyEvent, this.callback);
+  final String hotkeyString;
+  final KeyEvent keyEvent;
+  final Function callback;
+}
 
 class Hotkey {
-  static var _hotkeys = <String, Function> {};
+  final EventBus _eventBus;
+  var _hotkeyIds = <String, int>{};
+  var _hotkeys = <int, HotkeyDetails>{};
+  var _nextId = 1;
 
-  static void add(String hotkey, Function callback) => _hotkeys[hotkey] = callback;
-  static void remove(String hotkey) => _hotkeys.remove(hotkey);
-
-  static int _keybdHookProc(int code, Pointer<Uint64> wParam, Pointer<Int64> lParam) {
-    var event = wParam.address;
-    Pointer<winapi.KBDLLHOOK> dataPtr = lParam.cast();
-    var data = dataPtr.ref;
-
-    var keyName = keyMap.entries.firstWhere((entry) => entry.value == data.vkCode, orElse: () => null);
-    // TODO: encoding modifiers into string
-    if (keyName != null && _hotkeys.containsKey(keyName.key)) {
-      if (event == winapi.WM_KEYDOWN) {
-        _hotkeys[keyName.key]();
-      }
-      return 1;
-    } else {
-      return winapi.CallNextHookEx(nullptr, code, wParam, lParam);
-    }
+  Hotkey(this._eventBus) {
+    _eventBus.on<HotkeyPressed>()
+      .listen((hkPressed) {
+        try {
+          var hkDetails = _hotkeys[hkPressed.hotkeyId];
+          hkDetails.keyEvent
+            .modifiers.forEach((modifier) => input.sendKeyUp(keyMap[modifier]));
+          hkDetails.callback();
+          hkDetails.keyEvent
+            .modifiers.forEach((modifier) => input.sendKeyDown(keyMap[modifier]));
+        }
+        catch(e) {
+          print("Some exception: ${e}");
+        }
+      });
   }
 
-  static void init() {
-    var callback = Pointer.fromFunction<winapi.KeyboardProc>(Hotkey._keybdHookProc, 0);
-    var hook = winapi.SetWindowsHookExW(winapi.WH_KEYBOARD_LL, callback, nullptr, 0);
-    if (hook == nullptr) {
-      // TODO: handle error
-      print('couldnt register the hook');
-    } else {
-      print('Hook registered');
+  operator []=(String hk, Function callback) => add(hk, callback);
+
+  void add(String hotkey, Function callback) {
+    var key = Keyboard.decodeEvents(hotkey).single;
+    var hotkeyId = _nextId++;
+    _hotkeyIds[hotkey] = hotkeyId;
+    _hotkeys[hotkeyId] = HotkeyDetails(hotkey, key, callback);
+    var modifiers = 0;
+    if (key.shift) {
+      modifiers |= winapi.MOD_SHIFT;
     }
+    if (key.ctrl) {
+      modifiers |= winapi.MOD_CONTROL;
+    }
+    if (key.alt) {
+      modifiers |= winapi.MOD_ALT;
+    }
+    if (key.win) {
+      modifiers |= winapi.MOD_WIN;
+    }
+    _eventBus.fire(RegisterHotkey(key.keyCode, hotkeyId, modifiers));
+  }
+
+  void remove(String hotkey) {
+    var hotkeyId = _hotkeyIds[hotkey];
+    _hotkeys.remove(hotkeyId);
+    _hotkeyIds.remove(hotkey);
+    _eventBus.fire(UnregisterHotkey(hotkeyId));
   }
 }

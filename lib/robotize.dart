@@ -1,31 +1,35 @@
-export 'package:robotize/src/windows.dart';
+export 'package:robotize/src/window.dart';
 export 'package:robotize/src/input.dart';
 export 'package:robotize/src/hotkeys.dart';
 
-import 'dart:ffi';
-import 'package:ffi/ffi.dart';
+
+import 'dart:async';
+
+import 'package:event_bus/event_bus.dart';
+import 'package:robotize/src/clipboard.dart';
+import 'package:robotize/src/keyboard.dart';
+import 'package:robotize/src/winapi_main.dart' as winapi_main;
 import 'package:robotize/src/hotkeys.dart';
-import 'package:robotize/src/winapi.dart' as winapi;
+import 'package:robotize/src/input.dart';
+import 'package:robotize/src/window.dart';
 
-class Robotize {
-  static void start() {
-    Hotkey.init();
+var _eventBus = EventBus();
+Input input = null;
+Hotkey hotkey = null;
+Clipboard clipboard = null;
+Windows windows = null;
 
-    var msg = allocate<winapi.MSG>();
+//Hotstr hotstr = null;
 
-    while(true) { 
-      var result = winapi.GetMessage(msg, nullptr, 0, 0);
+void robotizeInit() {
+  input = Input();
+  hotkey = Hotkey(_eventBus);
+  windows = Windows(_eventBus);
+  clipboard = Clipboard();
+  Keyboard.init(_eventBus);
 
-      if (result > 0) {
-        winapi.TranslateMessage(msg);
-        winapi.DispatchMessage(msg);
-      } else if (result < 0) {
-        // TODO: error handling
-        print('Some error!');
-      } else if (result == 0) {
-        // TODO: cleanup hooks
-        break;
-      }
-    }
-  }
+  winapi_main.start(_eventBus);
+  _eventBus.on<winapi_main.WindowChanged>().listen((event) {
+    print("Window changed ${event.newWindow.getWindowText()}");
+  });
 }
